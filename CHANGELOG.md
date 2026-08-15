@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.0
+
+Mobile support.
+
+- Added the viewport meta tag. Without it phones rendered the page at desktop
+  width and zoomed out.
+- Replaced HTML5 drag-and-drop with pointer events, which fire for mouse and
+  touch alike. HTML5 drag events never fire on a touchscreen, so on a phone
+  nothing could be dragged at all.
+- Added an Armed bar: tap a module to arm it, tap a unit to place it. Movement
+  under 8px counts as a tap, so dragging and tapping coexist. In Stage 3 this
+  lets you arm a module, scroll sideways to the right column, then place it.
+- Unit numbers are pinned to the left edge while the chart scrolls horizontally.
+- Responsive layout under 860px: bin becomes a wrapping chip row above the rack,
+  stage rail goes two-up, tap targets raised to 44px, hint buttons enlarged.
+
 ## 0.1.1
 
 Fixed: in Stage 3, labels valid in more than one column (Transport, Application,

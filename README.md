@@ -4,13 +4,20 @@ A drag-and-drop memory trainer for the OSI model, built for **CompTIA Network+ (
 
 The stack is presented as a 7U equipment rack. Layer names, PDUs, addresses and devices are "modules" you seat into units. The blacked-out cells from the standard OSI/TCP-IP comparison chart are **blanking plates** — you have to install them deliberately, because knowing where nothing goes is half the objective.
 
-Single HTML file, no build step, no dependencies.
+Single HTML file, no build step, no dependencies. Works on desktop and on phones.
 
 ---
 
 ## Run it
 
-Open `index.html` in any desktop browser. That's the whole install.
+Open `index.html` in any browser. That's the whole install.
+
+Two ways to place a module, both available everywhere:
+
+- **Drag** it onto a unit. Mouse and touch both work — dragging runs on pointer events, not HTML5 drag-and-drop, which never fires on touchscreens.
+- **Tap to arm, tap to place.** Tap a module and it appears in the Armed bar at the top of the rack; tap a unit to seat it. This is the better flow on a phone in Stage 3, where the chart scrolls sideways — arm the module, scroll to the column you want, then tap.
+
+On narrow screens the unit numbers stay pinned to the left edge while the chart scrolls.
 
 To serve it locally instead:
 

@@ -1,4 +1,5 @@
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>OSI Rack Trainer</title>
 <style>
   :root{
@@ -131,6 +132,54 @@
   .scol.good b{color:var(--link)}
   .hide{display:none}
   a.reset{font-family:var(--mono);font-size:10px;color:var(--dim);text-decoration:underline;cursor:pointer}
+
+  /* ---------- pointer dragging (works for mouse and touch alike) ---------- */
+  .tile,.card{touch-action:none;-webkit-user-select:none;user-select:none}
+  #ghost{position:fixed;z-index:999;pointer-events:none;background:var(--panel2);
+    border:1px solid var(--amber);border-left:3px solid var(--amber);color:var(--ink);
+    padding:9px 12px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.55);
+    transform:translate(-50%,-140%);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis}
+
+  /* ---------- armed module bar ---------- */
+  #armed{position:sticky;top:0;z-index:5;display:none;align-items:center;gap:10px;
+    background:var(--panel2);border:1px solid var(--amber);padding:9px 12px;margin-bottom:8px}
+  #armed.on{display:flex}
+  #armed .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber)}
+  #armed .val{font-weight:700;font-size:13px;flex:1}
+  #armed button{background:transparent;border:1px solid var(--rule);color:var(--dim);
+    font-family:var(--mono);font-size:10px;padding:5px 9px;cursor:pointer}
+
+  /* keep the unit numbers visible while the chart scrolls sideways */
+  .unit{position:sticky;left:0;z-index:2;background:var(--chassis)}
+
+  /* ---------- mobile ---------- */
+  @media (max-width:860px){
+    .wrap{padding:14px 12px 48px}
+    header{flex-direction:column;align-items:flex-start;gap:10px}
+    .telemetry{text-align:left;gap:22px}
+    .rail{grid-template-columns:1fr 1fr;gap:6px}
+    .board{grid-template-columns:1fr;gap:14px}
+    .bin{display:flex;flex-wrap:wrap;gap:7px;padding:9px}
+    .tile{width:auto;flex:0 1 auto;margin:0;padding:11px 13px;font-size:13.5px;min-height:44px;
+      display:flex;flex-direction:column;justify-content:center}
+    .tile .span{margin-top:2px}
+    .tray-note{margin-top:8px}
+    .rack{padding:8px}
+    .cell{min-height:54px;font-size:13px;padding:6px}
+    .colhead{font-size:9px;letter-spacing:.06em}
+    .hintbtn{width:24px;height:24px;line-height:22px;font-size:11px;top:2px;right:2px}
+    .cell .hinttext{font-size:10px}
+    .console{font-size:13px;line-height:1.55}
+    button.ctl{padding:10px 12px;font-size:11px}
+    .scorebar{grid-template-columns:repeat(4,1fr)}
+    .card{font-size:15px;padding:16px}
+    .deck{padding:10px}
+  }
+  @media (max-width:420px){
+    h1{font-size:16px}
+    .rail{grid-template-columns:1fr 1fr}
+    .cell{font-size:12px}
+  }
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 
@@ -150,6 +199,7 @@
   <div class="rail" id="rail"></div>
   <div class="controls" id="controls"></div>
 
+  <div id="armed"><span class="lbl">Armed</span><span class="val" id="armedVal"></span><button id="armedClear">Cancel</button></div>
   <div id="stageView"></div>
 
   <div class="console" id="console"><span class="tag">Console</span>Pick a module, then drop it into a rack unit. Wrong seat, it springs back out.</div>
@@ -318,6 +368,77 @@ function say(kind, tag, html){
   c.innerHTML = '<span class="tag">'+tag+'</span>'+html;
 }
 
+/* ---------- armed module (tap to arm, tap a unit to place) ---------- */
+function setArmed(id, label){
+  S.selected = id;
+  S.selectedLabel = label || '';
+  const bar = $('#armed');
+  bar.classList.toggle('on', !!id);
+  if(id) $('#armedVal').textContent = label;
+}
+
+/* ---------- pointer dragging: one path for mouse and touch ----------
+   HTML5 drag events never fire on touch, so everything routes through
+   pointer events instead. Under 8px of movement counts as a tap. */
+const DRAG = {id:null, label:'', moved:false, x:0, y:0, suppressClick:false};
+
+function attachDrag(node, id, label, onTap){
+  node.addEventListener('pointerdown', e=>{
+    if(e.button && e.button!==0) return;
+    DRAG.id=id; DRAG.label=label; DRAG.moved=false; DRAG.x=e.clientX; DRAG.y=e.clientY;
+    try{ node.setPointerCapture(e.pointerId); }catch(err){}
+  });
+  node.addEventListener('pointermove', e=>{
+    if(DRAG.id!==id) return;
+    const dist = Math.hypot(e.clientX-DRAG.x, e.clientY-DRAG.y);
+    if(!DRAG.moved && dist>8){ DRAG.moved=true; makeGhost(label); }
+    if(DRAG.moved){ e.preventDefault(); moveGhost(e.clientX, e.clientY); }
+  });
+  node.addEventListener('pointerup', e=>{
+    if(DRAG.id!==id) return;
+    if(DRAG.moved){
+      const target = cellUnder(e.clientX, e.clientY);
+      killGhost();
+      DRAG.suppressClick = true;
+      setTimeout(()=>DRAG.suppressClick=false, 350);
+      if(target) deliver(target, id);
+    }else{
+      onTap();
+    }
+    DRAG.id=null; DRAG.moved=false;
+  });
+  node.addEventListener('pointercancel', ()=>{ killGhost(); DRAG.id=null; DRAG.moved=false; });
+}
+
+function makeGhost(label){
+  killGhost();
+  const g = el('div'); g.id='ghost'; g.textContent=label;
+  document.body.appendChild(g);
+}
+function moveGhost(x,y){
+  const g = $('#ghost'); if(!g) return;
+  g.style.left = x+'px'; g.style.top = y+'px';
+  document.querySelectorAll('.cell.over').forEach(c=>c.classList.remove('over'));
+  const t = cellUnder(x,y); if(t) t.classList.add('over');
+}
+function killGhost(){
+  const g = $('#ghost'); if(g) g.remove();
+  document.querySelectorAll('.cell.over').forEach(c=>c.classList.remove('over'));
+}
+function cellUnder(x,y){
+  const n = document.elementFromPoint(x,y);
+  if(!n) return null;
+  const c = n.closest('.cell');
+  if(!c) return null;
+  if(c.dataset.bin) return c;                       // stage 4 layer bin
+  if(!c.dataset.key || S.cells[c.dataset.key]) return null;  // already seated
+  return c;
+}
+function deliver(cell, id){
+  if(cell.dataset.bin) judge(+cell.dataset.bin);
+  else drop(cell.dataset.col, +cell.dataset.layer, id);
+}
+
 function layerOrder(){ return S.dir==='up' ? [...LAYERS].reverse() : LAYERS; }
 
 function startClock(){
@@ -425,10 +546,7 @@ function renderGrid(){
         cell.appendChild(hb);
         const lvl = S.hintLevel[key]||0;
         if(lvl>0) cell.appendChild(el('span','hinttext', hintText(col,n,lvl)));
-        cell.ondragover = e => { e.preventDefault(); cell.classList.add('over'); };
-        cell.ondragleave = () => cell.classList.remove('over');
-        cell.ondrop = e => { e.preventDefault(); cell.classList.remove('over'); drop(col,n,e.dataTransfer.getData('text/plain')); };
-        cell.onclick = () => { if(S.selected) drop(col,n,S.selected); };
+        cell.onclick = () => { if(S.selected && !DRAG.suppressClick) drop(col,n,S.selected); };
       }
       grid.appendChild(cell);
     });
@@ -451,10 +569,11 @@ function renderBin(){
   live.forEach(t=>{
     const n = remainingSlots(t);
     const b = el('button','tile'+(t.kind==='blank'?' blank':'')+(S.selected===t.id?' sel':''));
-    b.draggable = true;
     b.innerHTML = t.label + (n>1 ? '<span class="span">'+n+' still needed</span>' : '');
-    b.ondragstart = e => { e.dataTransfer.setData('text/plain', t.id); S.selected=null; };
-    b.onclick = () => { S.selected = (S.selected===t.id? null : t.id); renderBin(); };
+    attachDrag(b, t.id, t.label, ()=>{
+      setArmed(S.selected===t.id ? null : t.id, t.label);
+      renderBin();
+    });
     bin.appendChild(b);
   });
   const cnt = $('#binCount'); if(cnt) cnt.textContent = live.length + ' left';
@@ -511,7 +630,7 @@ function drop(col, layer, tileId){
       const more = remainingSlots(tile)>0 ? ' Still needed in the '+tile.slots.filter(s=>!S.cells[s.col+':'+s.layers[0]]).map(s=>COLLABEL[s.col]).join(' and ')+' column.' : '';
       say('ok','Seated · '+slot.layers.map(f=>f+'U').join(' + '),'<b>'+tile.label+'.</b> '+(FACT[col+':'+tile.label]||'')+span+more);
     }
-    S.selected=null;
+    setArmed(null);
     renderGrid();
     if(cell){ const nc=document.querySelector('[data-key="'+key+'"]'); if(nc) nc.classList.add('seated'); }
     checkComplete();
@@ -532,7 +651,7 @@ function drop(col, layer, tileId){
           + ' The right answer for '+where+' is '+answer+'.';
     }
     say('err','Rejected · '+layer+'U', why);
-    S.selected=null; renderBin();
+    setArmed(null); renderBin();
     save();
   }
 }
@@ -594,9 +713,10 @@ function renderBins(){
   const cur = S.deck[S.deckIdx];
   if(cur){
     const card = el('div','card','<span class="cardkind">'+(S.mode==='protocols'?'Where does it operate?':'Which layer owns this?')+'</span>'+cur.text);
-    card.draggable=true;
-    card.ondragstart = e => e.dataTransfer.setData('text/plain','CARD');
-    card.onclick = () => { S.selected = S.selected==='CARD'?null:'CARD'; card.style.borderLeftColor = S.selected?'var(--link)':'var(--amber)'; };
+    attachDrag(card, 'CARD', cur.text, ()=>{
+      setArmed(S.selected==='CARD'?null:'CARD', cur.text);
+      card.style.borderLeftColor = S.selected?'var(--link)':'var(--amber)';
+    });
     deck.appendChild(card);
   }else{
     deck.appendChild(el('div','card','Deck finished. Shuffle to run it again.'));
@@ -613,10 +733,8 @@ function renderBins(){
     const unit = el('div','unit','<span class="led"></span><span>'+n+'U</span>'); unit.dataset.unit=n;
     grid.appendChild(unit);
     const cell = el('div','cell', OSI[n]);
-    cell.ondragover = e=>{e.preventDefault();cell.classList.add('over');};
-    cell.ondragleave = ()=>cell.classList.remove('over');
-    cell.ondrop = e=>{e.preventDefault();cell.classList.remove('over');judge(n);};
-    cell.onclick = ()=>{ if(S.selected==='CARD') judge(n); };
+    cell.dataset.bin = n;
+    cell.onclick = ()=>{ if(S.selected==='CARD' && !DRAG.suppressClick) judge(n); };
     grid.appendChild(cell);
   });
   rack.appendChild(grid); right.appendChild(rack);
@@ -636,7 +754,7 @@ function renderBins(){
 
 function judge(n){
   const cur = S.deck[S.deckIdx]; if(!cur) return;
-  S.selected=null;
+  setArmed(null);
   if(n===cur.layer){
     P.layer[n].right++;
     say('ok','Correct · Layer '+n,'<b>'+cur.text+' → Layer '+n+' ('+OSI[n]+').</b> '+cur.why);
@@ -691,7 +809,7 @@ function renderRail(){
 
 /* ============================ RUN ============================ */
 function startRun(){
-  S.cells={}; S.selected=null;
+  S.cells={}; setArmed(null);
   if(S.stage===4){ startClock(); renderControls(); renderRail(); renderBins();
     say(null,'Stage 4','Free play. No gate here — the accuracy strip under the rack is your weak-layer report.');
     return; }
@@ -704,6 +822,9 @@ function startRun(){
   const st=STAGES[S.stage-1];
   say(null,'Stage '+S.stage,'<b>'+st.name+'.</b> '+st.blurb+' Wrong seat springs back out and tells you why.');
 }
+
+$('#armedClear').onclick = ()=>{ setArmed(null); if(S.stage===4) renderBins(); else renderBin(); };
+window.addEventListener('pointerup', ()=>{ if(!DRAG.moved) return; killGhost(); DRAG.id=null; DRAG.moved=false; });
 
 $('#wipe').onclick = async ()=>{
   try{ await Store.del(STORE_KEY); }catch(e){}
