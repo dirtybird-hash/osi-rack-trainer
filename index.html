@@ -1,0 +1,704 @@
+<meta charset="utf-8">
+<title>OSI Rack Trainer</title>
+<style>
+  :root{
+    --bg:#0F1519;
+    --chassis:#18232A;
+    --panel:#1E2C34;
+    --panel2:#233742;
+    --rule:#2C4048;
+    --ink:#E6EEF0;
+    --dim:#8AA1AB;
+    --amber:#F2A83B;
+    --link:#43D6A0;
+    --fault:#FF6B6B;
+    --sans: ui-sans-serif, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--sans);
+    background-image:
+      linear-gradient(180deg, rgba(255,255,255,.02) 0 1px, transparent 1px 4px);
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:22px 20px 60px}
+
+  /* ---------- header ---------- */
+  header{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;
+    border-bottom:1px solid var(--rule);padding-bottom:14px;margin-bottom:18px}
+  h1{margin:0;font-size:19px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
+  .sub{margin:5px 0 0;font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.04em}
+  .telemetry{display:flex;gap:16px;font-family:var(--mono);font-size:11px;color:var(--dim);text-align:right}
+  .telemetry b{display:block;color:var(--ink);font-size:15px;font-weight:600;letter-spacing:.02em}
+
+  /* ---------- stage rail ---------- */
+  .rail{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:20px}
+  .stagebtn{position:relative;text-align:left;background:var(--chassis);border:1px solid var(--rule);
+    border-left:3px solid var(--rule);color:var(--dim);padding:10px 12px;cursor:pointer;
+    font-family:var(--sans);font-size:12px;letter-spacing:.04em;transition:.15s}
+  .stagebtn .idx{font-family:var(--mono);font-size:10px;opacity:.7;display:block;margin-bottom:3px}
+  .stagebtn .nm{color:var(--ink);font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:11.5px}
+  .stagebtn .st{font-family:var(--mono);font-size:10px;margin-top:4px;display:block}
+  .stagebtn[data-state="locked"]{opacity:.42;cursor:not-allowed}
+  .stagebtn[data-state="locked"] .nm{color:var(--dim)}
+  .stagebtn[data-state="done"]{border-left-color:var(--link)}
+  .stagebtn[data-state="done"] .st{color:var(--link)}
+  .stagebtn[data-state="open"]{border-left-color:var(--amber)}
+  .stagebtn[data-state="open"] .st{color:var(--amber)}
+  .stagebtn.active{background:var(--panel);border-color:var(--panel2)}
+  .stagebtn:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+  /* ---------- layout ---------- */
+  .board{display:grid;grid-template-columns:236px 1fr;gap:18px;align-items:start}
+  .binhead,.rackhead{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--dim);margin:0 0 8px;display:flex;justify-content:space-between;align-items:center}
+
+  /* ---------- module bin ---------- */
+  .bin{background:var(--chassis);border:1px solid var(--rule);padding:10px;min-height:120px}
+  .bin.empty::after{content:"Bin empty — rack is fully populated.";display:block;
+    font-family:var(--mono);font-size:11px;color:var(--dim);padding:8px 4px;line-height:1.5}
+  .tile{display:block;width:100%;text-align:left;background:var(--panel);border:1px solid var(--panel2);
+    border-left:3px solid var(--amber);color:var(--ink);padding:8px 10px;margin-bottom:7px;cursor:grab;
+    font-size:12.5px;font-weight:600;letter-spacing:.02em;font-family:var(--sans);transition:.12s}
+  .tile:hover{background:var(--panel2)}
+  .tile:active{cursor:grabbing}
+  .tile.sel{border-color:var(--amber);background:var(--panel2);box-shadow:inset 0 0 0 1px var(--amber)}
+  .tile .span{display:block;font-family:var(--mono);font-size:9.5px;color:var(--dim);margin-top:3px;letter-spacing:.06em}
+  .tile.blank{border-left-color:var(--rule);color:var(--dim);font-style:normal}
+  .tile:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  .tray-note{font-family:var(--mono);font-size:10px;color:var(--dim);line-height:1.6;margin-top:10px}
+
+  /* ---------- rack ---------- */
+  .rack{background:var(--chassis);border:1px solid var(--rule);padding:10px;overflow-x:auto}
+  .grid{display:grid;gap:4px;min-width:100%}
+  .colhead{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--dim);padding:2px 6px 6px;white-space:nowrap}
+  .unit{display:flex;align-items:center;gap:8px;padding:0 6px;font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .led{width:7px;height:7px;border-radius:50%;background:#2A3A42;box-shadow:inset 0 0 0 1px #0009;flex:0 0 auto}
+  .unit.lit .led{background:var(--link);box-shadow:0 0 7px rgba(67,214,160,.75)}
+  .cell{position:relative;min-height:46px;background:var(--panel);border:1px dashed var(--rule);
+    display:flex;align-items:center;justify-content:center;text-align:center;padding:6px 8px;
+    font-size:12.5px;font-weight:600;letter-spacing:.02em}
+  .cell.given{background:transparent;border:1px solid transparent;color:var(--ink);justify-content:flex-start}
+  .cell.over{border-color:var(--amber);background:var(--panel2)}
+  .cell.filled{border:1px solid var(--panel2);border-style:solid;background:var(--panel2);color:var(--ink)}
+  .cell.blanked{background:repeating-linear-gradient(45deg,#141E24,#141E24 6px,#111A20 6px,#111A20 12px);
+    border-style:solid;border-color:var(--rule);color:#4C616B;font-family:var(--mono);font-size:10px;letter-spacing:.1em}
+  .cell.bad{animation:shake .3s;border-color:var(--fault)!important;background:rgba(255,107,107,.14)}
+  @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+  .cell.seated{animation:seat .4s}
+  @keyframes seat{0%{background:rgba(67,214,160,.3)}100%{background:var(--panel2)}}
+  .hintbtn{position:absolute;top:3px;right:4px;width:15px;height:15px;line-height:13px;text-align:center;
+    background:transparent;border:1px solid var(--rule);color:var(--dim);font-size:9px;cursor:pointer;padding:0;
+    font-family:var(--mono)}
+  .hintbtn:hover{border-color:var(--amber);color:var(--amber)}
+  .cell .hinttext{position:absolute;bottom:2px;left:0;right:0;font-family:var(--mono);font-size:9px;
+    color:var(--amber);letter-spacing:.04em}
+
+  /* ---------- console ---------- */
+  .console{margin-top:14px;background:var(--chassis);border:1px solid var(--rule);
+    border-left:3px solid var(--rule);padding:11px 13px;min-height:56px;
+    font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--dim)}
+  .console.ok{border-left-color:var(--link)}
+  .console.err{border-left-color:var(--fault)}
+  .console b{color:var(--ink);font-weight:600}
+  .console .tag{color:var(--amber);letter-spacing:.1em;font-size:10px;display:block;margin-bottom:3px;text-transform:uppercase}
+  .console.err .tag{color:var(--fault)}
+  .console.ok .tag{color:var(--link)}
+
+  /* ---------- controls ---------- */
+  .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  button.ctl{background:var(--chassis);border:1px solid var(--rule);color:var(--dim);
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+    padding:7px 11px;cursor:pointer;transition:.12s}
+  button.ctl:hover{border-color:var(--amber);color:var(--amber)}
+  button.ctl.on{border-color:var(--amber);color:var(--amber)}
+  button.ctl:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+  /* ---------- stage 4 ---------- */
+  .deck{background:var(--chassis);border:1px solid var(--rule);padding:14px;margin-bottom:10px}
+  .card{background:var(--panel2);border:1px solid var(--rule);border-left:3px solid var(--amber);
+    padding:14px;font-size:14.5px;line-height:1.5;cursor:grab;font-weight:600}
+  .card:active{cursor:grabbing}
+  .cardkind{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--dim);display:block;margin-bottom:6px;font-weight:400}
+  .scorebar{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:12px}
+  .scol{background:var(--chassis);border:1px solid var(--rule);padding:6px 4px;text-align:center;
+    font-family:var(--mono);font-size:10px;color:var(--dim)}
+  .scol b{display:block;font-size:13px;color:var(--ink);margin-top:3px}
+  .scol.warn b{color:var(--fault)}
+  .scol.good b{color:var(--link)}
+  .hide{display:none}
+  a.reset{font-family:var(--mono);font-size:10px;color:var(--dim);text-decoration:underline;cursor:pointer}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>OSI Rack Trainer</h1>
+      <p class="sub">N10-009 · Objective 1.1 — seat every module in the right unit</p>
+    </div>
+    <div class="telemetry">
+      <div>Run<b id="tTime">0:00</b></div>
+      <div>Faults<b id="tErr">0</b></div>
+      <div>Reveals<b id="tRev">0</b></div>
+    </div>
+  </header>
+
+  <div class="rail" id="rail"></div>
+  <div class="controls" id="controls"></div>
+
+  <div id="stageView"></div>
+
+  <div class="console" id="console"><span class="tag">Console</span>Pick a module, then drop it into a rack unit. Wrong seat, it springs back out.</div>
+
+  <p style="margin-top:22px"><a class="reset" id="wipe">Wipe all saved progress</a></p>
+</div>
+
+<script>
+/* ============================ DATA ============================ */
+const LAYERS = [7,6,5,4,3,2,1];
+
+const OSI  = {7:'Application',6:'Presentation',5:'Session',4:'Transport',3:'Network',2:'Data Link',1:'Physical'};
+const TCP  = {7:'Application',6:'Application',5:'Application',4:'Transport',3:'Internet',2:'Network',1:'Network'};
+const PDU  = {7:'Data',6:'Data',5:'Data',4:'Segments',3:'Packets',2:'Frames',1:'Bits'};
+const ADDR = {7:null,6:null,5:null,4:'Port #s',3:'IP Addresses',2:'MAC Addresses',1:null};
+const DEV  = {7:null,6:null,5:null,4:null,3:'Routers',2:'Switches/Bridges',1:'Hubs/Repeaters'};
+const NIC  = {7:null,6:null,5:null,4:null,3:null,2:'NIC',1:'NIC'};
+
+const ANSWERS = {osi:OSI, tcp:TCP, pdu:PDU, addr:ADDR, dev:DEV, nic:NIC};
+const COLNAME = {osi:'OSI Model', tcp:'TCP/IP Model', pdu:'PDU', addr:'Address', dev:'Devices', nic:''};
+
+const MNEMONIC = {
+  osi:{7:'All',6:'People',5:'Seem',4:'To',3:'Need',2:'Data',1:'Processing'},
+  tcp:{7:'Apple',6:'Apple',5:'Apple',4:'Tainted',3:'Ingest',2:'Never',1:'Never'},
+  pdu:{7:'Drippy',6:'Drippy',5:'Drippy',4:'Sweet',3:'Pancakes',2:'For',1:'Breakfast'},
+  addr:{4:'ports',3:'logical',2:'burned-in'},
+  dev:{3:'forwards on IP',2:'forwards on MAC',1:'no brain, just signal'},
+  nic:{2:'the card itself',1:'the card itself'}
+};
+
+const FACT = {
+  'osi:Application':'Layer 7 is what you actually see — HTTP, FTP, DNS, SMTP live here.',
+  'osi:Presentation':'Layer 6 translates, encrypts and compresses. TLS/SSL, ASCII, JPEG.',
+  'osi:Session':'Layer 5 starts, maintains and tears down conversations. Logon, checkpoints, tunnels.',
+  'osi:Transport':'Layer 4 is TCP and UDP — end-to-end delivery and port numbers.',
+  'osi:Network':'Layer 3 is IP, routing and fragmentation.',
+  'osi:Data Link':'Layer 2 is MAC addressing and framing, node to node.',
+  'osi:Physical':'Layer 1 is cable, fiber, radio — the signal itself.',
+  'tcp:Application':'TCP/IP collapses OSI 7, 6 and 5 into one Application layer.',
+  'tcp:Transport':'The only 1:1 mapping in the chart — TCP/IP Transport is OSI Layer 4.',
+  'tcp:Internet':'TCP/IP calls Layer 3 "Internet" because that is where IP lives.',
+  'tcp:Network':'TCP/IP Network Access covers both OSI Layer 2 and Layer 1.',
+  'pdu:Data':'Nothing has been encapsulated yet at 7, 6 or 5 — it is still just data.',
+  'pdu:Segments':'TCP adds port numbers here, which turns data into segments.',
+  'pdu:Packets':'Add the IP header and it becomes a packet.',
+  'pdu:Frames':'Add the MAC header and FCS trailer and it becomes a frame.',
+  'pdu:Bits':'On the wire there is no header left to read — just bits.',
+  'addr:Port #s':'Layer 4 addresses the application, not the host. 443, 80, 22.',
+  'addr:IP Addresses':'Layer 3 logical addressing — assigned, routable, changeable.',
+  'addr:MAC Addresses':'12 hex characters burned into the NIC. First half is the manufacturer OUI.',
+  'dev:Routers':'A router forwards on destination IP, so it works at Layer 3.',
+  'dev:Switches/Bridges':'A switch forwards on destination MAC, so it works at Layer 2.',
+  'dev:Hubs/Repeaters':'A hub repeats the electrical signal with no addressing at all — Layer 1.',
+  'nic:NIC':'The NIC straddles two layers: it puts signal on the wire (1) and carries the MAC address (2).'
+};
+
+const BLANK_FACT = {
+  addr:'No addressing scheme exists at that layer — those are the blacked-out cells on the chart.',
+  dev:'No dedicated device operates there. Everything at 7 through 4 is host software.',
+  nic:'The NIC only reaches up to Layer 2.'
+};
+
+const PROTOCOLS = [
+  ['HTTP',7],['HTTPS',7],['FTP',7],['SMTP',7],['POP3',7],['DHCP',7],['DNS',7],['SNMP',7],
+  ['TLS / SSL encryption',6],['ASCII / EBCDIC translation',6],['JPEG / MOV formatting',6],['Data compression',6],
+  ['NetBIOS',5],['RPC',5],['NFS',5],['Session establishment / teardown',5],['Tunneling control protocol',5],
+  ['TCP',4],['UDP',4],['Port 443',4],['3-way handshake',4],['Segment sequence numbers',4],
+  ['IP',3],['ICMP',3],['OSPF',3],['NAT',3],['Subnet mask',3],['Fragmentation',3],
+  ['Ethernet II frame',2],['ARP',2],['PPP',2],['HDLC',2],['EUI-48 address',2],['VLAN tagging',2],
+  ['CAT6 twisted pair',1],['Single-mode fiber',1],['RJ45 connector',1],['802.11 radio signal',1],['Repeater',1]
+];
+
+const SYMPTOMS = [
+  ['Bent pin on an RJ45, no link light on the switch port',1,'Nothing electrical is reaching the NIC. Loopback and cable test first.'],
+  ['Two hosts report a duplicate address on the same subnet',3,'Duplicate IP is logical addressing — Layer 3.'],
+  ['Switch logs show a MAC address flapping between two ports',2,'MAC address table behaviour is pure Layer 2, usually a loop.'],
+  ['Browser reports the certificate expired, connection refused',6,'TLS encryption and certificates sit at the presentation layer.'],
+  ['ACL is dropping traffic on TCP 443',4,'Port numbers are Layer 4 addressing.'],
+  ['Multimode fiber run of 400m shows heavy attenuation',1,'Distance and signal loss are physical media limits.'],
+  ['Trunk port is passing the wrong VLAN tag',2,'802.1Q tags ride in the Ethernet frame header.'],
+  ['Host pings its own subnet fine but nothing beyond it',3,'A missing or wrong default gateway is a routing problem.'],
+  ['SSH connection drops after an idle timeout',5,'Keeping a session alive and tearing it down is Layer 5.'],
+  ['Web server returns HTTP 404 for a valid path',7,'The application itself answered — the network delivered fine.'],
+  ['MTU mismatch is forcing fragmentation across a WAN link',3,'Fragmenting and reassembling packets happens at Layer 3.'],
+  ['UTF-8 characters render as garbage in the client app',6,'Character encoding translation is the presentation layer.'],
+  ['VPN tunnel comes up but re-authenticates in a loop',5,'Authentication and session maintenance are Layer 5 duties.'],
+  ['Crosstalk on an untwisted run beside a fluorescent ballast',1,'EMI on copper is a physical layer fault.'],
+  ['ARP cache shows the gateway MAC has changed unexpectedly',2,'ARP resolves IP to MAC and lives at the data link layer.'],
+  ['UDP voice stream has audible dropouts, no retransmits',4,'Connectionless delivery with no error recovery is a Layer 4 characteristic.'],
+  ['NIC negotiated 10 Mbps half-duplex against a gigabit port',1,'Speed and duplex negotiation is a physical layer standard.'],
+  ['DNS resolves the name but the app never loads',7,'Name resolution succeeded — the failure is in the application.']
+];
+
+const STAGES = [
+  {id:1,name:'Stack Builder',blurb:'Seat the seven layer names. Both directions.'},
+  {id:2,name:'Attribute Sort',blurb:'One column at a time: PDU, then Address, then Devices.'},
+  {id:3,name:'Full Chart',blurb:'Rebuild the entire chart from an empty rack.'},
+  {id:4,name:'Bins & Triage',blurb:'Protocols and fault symptoms. Free play.'}
+];
+
+const SUB2 = [
+  {key:'pdu', cols:['pdu'], label:'PDU column'},
+  {key:'addr',cols:['addr'],label:'Address column'},
+  {key:'dev', cols:['dev','nic'],label:'Devices column'}
+];
+
+/* ============================ STATE ============================ */
+const STORE_KEY = 'osi-rack-trainer-v1';
+let P = {
+  unlocked:1,
+  s1:{down:false,up:false,best:null},
+  s2:{pdu:false,addr:false,dev:false},
+  s3:{done:false,best:null},
+  layer:{},           // layer -> {right,wrong}
+  totalReveals:0
+};
+LAYERS.forEach(n=>P.layer[n]={right:0,wrong:0});
+
+let S = {
+  stage:1, sub:0, dir:'down',
+  cols:[], cells:{}, tray:[], selected:null,
+  errors:0, reveals:0, hintLevel:{}, t0:null, timer:null,
+  deck:[], deckIdx:0, mode:'protocols'
+};
+
+/* ============================ STORAGE ============================ */
+/* Two backends. Inside a Claude artifact only window.storage exists; when this
+   file is served from GitHub Pages or opened locally, localStorage is used. */
+const Store = {
+  async get(k){
+    if(window.storage) { const r = await window.storage.get(k); return r ? r.value : null; }
+    return localStorage.getItem(k);
+  },
+  async set(k,v){
+    if(window.storage) return window.storage.set(k,v);
+    localStorage.setItem(k,v);
+  },
+  async del(k){
+    if(window.storage) return window.storage.delete(k);
+    localStorage.removeItem(k);
+  }
+};
+
+async function load(){
+  try{
+    const v = await Store.get(STORE_KEY);
+    if(v){
+      P = Object.assign(P, JSON.parse(v));
+      LAYERS.forEach(n=>{ if(!P.layer[n]) P.layer[n]={right:0,wrong:0}; });
+    }
+  }catch(e){ /* first run, nothing saved */ }
+}
+async function save(){
+  try{ await Store.set(STORE_KEY, JSON.stringify(P)); }
+  catch(e){ console.warn('save failed', e); }
+}
+
+/* ============================ HELPERS ============================ */
+const $ = s => document.querySelector(s);
+const el = (t,c,h)=>{const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e;};
+
+function say(kind, tag, html){
+  const c = $('#console');
+  c.className = 'console' + (kind ? ' '+kind : '');
+  c.innerHTML = '<span class="tag">'+tag+'</span>'+html;
+}
+
+function layerOrder(){ return S.dir==='up' ? [...LAYERS].reverse() : LAYERS; }
+
+function startClock(){
+  S.t0 = Date.now(); S.errors=0; S.reveals=0; S.hintLevel={};
+  $('#tErr').textContent='0'; $('#tRev').textContent='0';
+  clearInterval(S.timer);
+  S.timer = setInterval(()=>{
+    const s = Math.floor((Date.now()-S.t0)/1000);
+    $('#tTime').textContent = Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+  },500);
+}
+function stopClock(){ clearInterval(S.timer); return Math.floor((Date.now()-S.t0)/1000); }
+function fmt(s){ return s==null?'—':Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
+
+/* ============================ TRAY BUILD ============================ */
+function buildTray(cols){
+  const tiles=[]; let needsBlank=false;
+  cols.forEach(col=>{
+    const seen={};
+    LAYERS.forEach(n=>{
+      const v = ANSWERS[col][n];
+      if(v===null){ needsBlank=true; return; }
+      if(!seen[v]){ seen[v]=[]; }
+      seen[v].push(n);
+    });
+    Object.keys(seen).forEach(v=>{
+      tiles.push({id:col+':'+v, col, label:v, fills:seen[v], kind:'tile'});
+    });
+  });
+  if(needsBlank) tiles.push({id:'blank', col:'*', label:'Blanking plate', fills:[], kind:'blank'});
+  // shuffle so order never becomes the hint
+  for(let i=tiles.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [tiles[i],tiles[j]]=[tiles[j],tiles[i]]; }
+  return tiles;
+}
+
+function remainingBlanks(){
+  let n=0;
+  S.cols.forEach(col=>LAYERS.forEach(L=>{
+    if(ANSWERS[col][L]===null && !S.cells[col+':'+L]) n++;
+  }));
+  return n;
+}
+
+/* ============================ GRID RENDER ============================ */
+function renderGrid(){
+  const view = $('#stageView');
+  view.innerHTML='';
+
+  const board = el('div','board');
+
+  /* --- bin --- */
+  const binWrap = el('div');
+  binWrap.appendChild(el('p','binhead','<span>Module bin</span><span id="binCount"></span>'));
+  const bin = el('div','bin'); bin.id='bin';
+  binWrap.appendChild(bin);
+  binWrap.appendChild(el('p','tray-note','Drag a module into a unit, or click the module then click the unit. The ? on an empty unit gives a hint: mnemonic word, then first letter, then the answer. Revealing the answer costs you the clean run.'));
+  board.appendChild(binWrap);
+
+  /* --- rack --- */
+  const rackWrap = el('div');
+  const st = STAGES[S.stage-1];
+  rackWrap.appendChild(el('p','rackhead','<span>Stage '+S.stage+' — '+st.name+(S.stage===2?' · '+SUB2[S.sub].label:'')+'</span><span>'+(S.dir==='up'?'1 → 7':'7 → 1')+'</span>'));
+  const rack = el('div','rack');
+  const grid = el('div','grid');
+
+  const showOsiGiven = (S.stage===2);
+  const cols = S.cols;
+  const template = '54px ' + (showOsiGiven?'126px ':'') + cols.map(c=> c==='nic'?'86px':'minmax(120px,1fr)').join(' ');
+  grid.style.gridTemplateColumns = template;
+
+  // header row
+  grid.appendChild(el('div','colhead','Unit'));
+  if(showOsiGiven) grid.appendChild(el('div','colhead','OSI Model'));
+  cols.forEach(c=>grid.appendChild(el('div','colhead',COLNAME[c]||'&nbsp;')));
+
+  layerOrder().forEach(n=>{
+    const unit = el('div','unit','<span class="led"></span><span>'+n+'U</span>');
+    unit.dataset.unit=n;
+    grid.appendChild(unit);
+
+    if(showOsiGiven){
+      grid.appendChild(el('div','cell given', OSI[n]));
+    }
+    cols.forEach(col=>{
+      const key = col+':'+n;
+      const answer = ANSWERS[col][n];
+      const placed = S.cells[key];
+      const cell = el('div','cell');
+      cell.dataset.key = key; cell.dataset.col = col; cell.dataset.layer = n;
+
+      if(placed==='__BLANK__'){ cell.classList.add('blanked'); cell.textContent='N/A'; }
+      else if(placed){ cell.classList.add('filled'); cell.textContent = placed; }
+      else{
+        cell.textContent='';
+        const hb = el('button','hintbtn','?');
+        hb.title='Hint';
+        hb.onclick = ev => { ev.stopPropagation(); hint(col,n,cell); };
+        cell.appendChild(hb);
+        const lvl = S.hintLevel[key]||0;
+        if(lvl>0) cell.appendChild(el('span','hinttext', hintText(col,n,lvl)));
+        cell.ondragover = e => { e.preventDefault(); cell.classList.add('over'); };
+        cell.ondragleave = () => cell.classList.remove('over');
+        cell.ondrop = e => { e.preventDefault(); cell.classList.remove('over'); drop(col,n,e.dataTransfer.getData('text/plain')); };
+        cell.onclick = () => { if(S.selected) drop(col,n,S.selected); };
+      }
+      grid.appendChild(cell);
+    });
+  });
+
+  rack.appendChild(grid);
+  rackWrap.appendChild(rack);
+  board.appendChild(rackWrap);
+  view.appendChild(board);
+
+  renderBin();
+  refreshLeds();
+}
+
+function renderBin(){
+  const bin = $('#bin'); if(!bin) return;
+  bin.innerHTML='';
+  const live = S.tray.filter(t=> t.kind==='blank' ? remainingBlanks()>0 : !S.cells[t.col+':'+t.fills[0]]);
+  bin.classList.toggle('empty', live.length===0);
+  live.forEach(t=>{
+    const b = el('button','tile'+(t.kind==='blank'?' blank':'')+(S.selected===t.id?' sel':''));
+    b.draggable = true;
+    b.innerHTML = t.label + (t.fills.length>1 ? '<span class="span">spans '+t.fills.join(' + ')+'</span>' : (t.kind==='blank'?'<span class="span">'+remainingBlanks()+' left</span>':''));
+    b.ondragstart = e => { e.dataTransfer.setData('text/plain', t.id); S.selected=null; };
+    b.onclick = () => { S.selected = (S.selected===t.id? null : t.id); renderBin(); };
+    bin.appendChild(b);
+  });
+  const cnt = $('#binCount'); if(cnt) cnt.textContent = live.length + ' left';
+}
+
+function refreshLeds(){
+  document.querySelectorAll('.unit').forEach(u=>{
+    const n = +u.dataset.unit;
+    const done = S.cols.every(c => !!S.cells[c+':'+n]);
+    u.classList.toggle('lit', done);
+  });
+}
+
+/* ============================ HINTS ============================ */
+function hintText(col,n,lvl){
+  const a = ANSWERS[col][n];
+  if(lvl===1){
+    const m = MNEMONIC[col] && MNEMONIC[col][n];
+    if(m) return '“'+m+'”';
+    return a===null ? 'nothing goes here' : 'think about what is added at '+n;
+  }
+  if(lvl===2) return a===null ? 'blanking plate' : a[0]+'…';
+  return a===null ? 'N/A' : a;
+}
+function hint(col,n,cell){
+  const key = col+':'+n;
+  const lvl = Math.min((S.hintLevel[key]||0)+1, 3);
+  S.hintLevel[key]=lvl;
+  if(lvl===3){ S.reveals++; P.totalReveals++; $('#tRev').textContent=S.reveals; save(); }
+  say(null,'Hint · '+n+'U', hintText(col,n,lvl) + (lvl===3?' <b>— revealed, this run is no longer clean.</b>':''));
+  renderGrid();
+}
+
+/* ============================ DROP LOGIC ============================ */
+function drop(col, layer, tileId){
+  const tile = S.tray.find(t=>t.id===tileId);
+  if(!tile) return;
+  const key = col+':'+layer;
+  if(S.cells[key]) return;
+  const answer = ANSWERS[col][layer];
+  const cell = document.querySelector('[data-key="'+key+'"]');
+
+  const correct = tile.kind==='blank' ? answer===null
+                : (tile.col===col && answer===tile.label);
+
+  if(correct){
+    if(tile.kind==='blank'){
+      S.cells[key]='__BLANK__';
+      P.layer[layer].right++;
+      say('ok','Seated · '+layer+'U','<b>Blanking plate.</b> '+(BLANK_FACT[col]||'Nothing occupies that cell.'));
+    }else{
+      tile.fills.forEach(f=>{ S.cells[col+':'+f]=tile.label; P.layer[f].right++; });
+      const span = tile.fills.length>1 ? ' It fills '+tile.fills.join(' and ')+'.' : '';
+      say('ok','Seated · '+tile.fills.map(f=>f+'U').join(' + '),'<b>'+tile.label+'.</b> '+(FACT[col+':'+tile.label]||'')+span);
+    }
+    S.selected=null;
+    renderGrid();
+    if(cell){ const nc=document.querySelector('[data-key="'+key+'"]'); if(nc) nc.classList.add('seated'); }
+    checkComplete();
+  }else{
+    S.errors++; P.layer[layer].wrong++;
+    $('#tErr').textContent = S.errors;
+    if(cell){ cell.classList.add('bad'); setTimeout(()=>cell.classList.remove('bad'),320); }
+    let why;
+    if(tile.kind==='blank'){
+      why = '<b>Something does belong at '+layer+'U.</b> That cell is not blacked out on the chart — '+(FACT[col+':'+answer]||'');
+    }else if(answer===null){
+      why = '<b>'+tile.label+' does not belong at '+layer+'U.</b> That cell is blacked out on the chart. '+(BLANK_FACT[col]||'');
+    }else{
+      const home = tile.fills.map(f=>f+'U').join('/');
+      why = '<b>'+tile.label+' belongs at '+home+', not '+layer+'U.</b> '+(FACT[tile.col+':'+tile.label]||'')+' The right answer for '+layer+'U is '+answer+'.';
+    }
+    say('err','Rejected · '+layer+'U', why);
+    S.selected=null; renderBin();
+    save();
+  }
+}
+
+/* ============================ COMPLETION ============================ */
+function checkComplete(){
+  const done = S.cols.every(c => LAYERS.every(n => !!S.cells[c+':'+n]));
+  if(!done) return;
+  const secs = stopClock();
+  const clean = S.errors===0 && S.reveals===0;
+  let msg = '<b>Rack fully populated in '+fmt(secs)+'.</b> '+S.errors+' fault'+(S.errors===1?'':'s')+', '+S.reveals+' reveal'+(S.reveals===1?'':'s')+'. ';
+
+  if(S.stage===1){
+    if(clean){
+      P.s1[S.dir]=true;
+      if(P.s1.best===null || secs<P.s1.best) P.s1.best=secs;
+      msg += 'Clean run recorded for '+(S.dir==='up'?'bottom-up':'top-down')+'. ';
+      if(P.s1.down && P.s1.up){ if(P.unlocked<2) P.unlocked=2; msg+='<b>Both directions clean — Stage 2 unlocked.</b>'; }
+      else msg += 'Now flip the direction and do it again.';
+    }else msg += 'Not clean, so it does not count toward the gate. Reset and run it again.';
+  }
+  else if(S.stage===2){
+    const k = SUB2[S.sub].key;
+    if(clean){
+      P.s2[k]=true;
+      msg += 'Clean run on the '+SUB2[S.sub].label+'. ';
+      if(P.s2.pdu&&P.s2.addr&&P.s2.dev){ if(P.unlocked<3) P.unlocked=3; msg+='<b>All three columns clean — Stage 3 unlocked.</b>'; }
+      else msg += 'Next column is waiting.';
+    }else msg += 'Not clean. Run this column again.';
+  }
+  else if(S.stage===3){
+    if(clean){
+      P.s3.done=true;
+      if(P.s3.best===null || secs<P.s3.best) P.s3.best=secs;
+      if(P.unlocked<4) P.unlocked=4;
+      msg += '<b>Whole chart from memory with no faults. Stage 4 unlocked.</b>';
+    }else msg += 'Close. A clean full-chart run unlocks Stage 4.';
+  }
+  say('ok','Run complete', msg);
+  save(); renderRail();
+}
+
+/* ============================ STAGE 4 ============================ */
+function renderBins(){
+  const view = $('#stageView'); view.innerHTML='';
+  const src = S.mode==='protocols'
+    ? PROTOCOLS.map(p=>({text:p[0],layer:p[1],why:FACT['osi:'+OSI[p[1]]]||''}))
+    : SYMPTOMS.map(p=>({text:p[0],layer:p[1],why:p[2]}));
+  if(!S.deck.length || S.deckReset){
+    S.deck = src.slice(); S.deckReset=false;
+    for(let i=S.deck.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[S.deck[i],S.deck[j]]=[S.deck[j],S.deck[i]];}
+    S.deckIdx=0;
+  }
+
+  const board = el('div','board');
+  const left = el('div');
+  left.appendChild(el('p','binhead','<span>'+(S.mode==='protocols'?'Protocol card':'Fault report')+'</span><span>'+(S.deckIdx+1)+' / '+S.deck.length+'</span>'));
+  const deck = el('div','deck');
+  const cur = S.deck[S.deckIdx];
+  if(cur){
+    const card = el('div','card','<span class="cardkind">'+(S.mode==='protocols'?'Where does it operate?':'Which layer owns this?')+'</span>'+cur.text);
+    card.draggable=true;
+    card.ondragstart = e => e.dataTransfer.setData('text/plain','CARD');
+    card.onclick = () => { S.selected = S.selected==='CARD'?null:'CARD'; card.style.borderLeftColor = S.selected?'var(--link)':'var(--amber)'; };
+    deck.appendChild(card);
+  }else{
+    deck.appendChild(el('div','card','Deck finished. Shuffle to run it again.'));
+  }
+  left.appendChild(deck);
+  left.appendChild(el('p','tray-note','Drag the card onto a layer unit, or click the card then click the unit.'));
+  board.appendChild(left);
+
+  const right = el('div');
+  right.appendChild(el('p','rackhead','<span>Layer bins</span><span>drop target</span>'));
+  const rack = el('div','rack'); const grid = el('div','grid');
+  grid.style.gridTemplateColumns='54px 1fr';
+  LAYERS.forEach(n=>{
+    const unit = el('div','unit','<span class="led"></span><span>'+n+'U</span>'); unit.dataset.unit=n;
+    grid.appendChild(unit);
+    const cell = el('div','cell', OSI[n]);
+    cell.ondragover = e=>{e.preventDefault();cell.classList.add('over');};
+    cell.ondragleave = ()=>cell.classList.remove('over');
+    cell.ondrop = e=>{e.preventDefault();cell.classList.remove('over');judge(n);};
+    cell.onclick = ()=>{ if(S.selected==='CARD') judge(n); };
+    grid.appendChild(cell);
+  });
+  rack.appendChild(grid); right.appendChild(rack);
+  board.appendChild(right);
+  view.appendChild(board);
+
+  const bar = el('div','scorebar');
+  LAYERS.forEach(n=>{
+    const st=P.layer[n], tot=st.right+st.wrong;
+    const pct = tot? Math.round(st.right/tot*100) : null;
+    const c = el('div','scol'+(pct===null?'':(pct>=80?' good':(pct<60?' warn':''))), 'L'+n+'<b>'+(pct===null?'—':pct+'%')+'</b>');
+    bar.appendChild(c);
+  });
+  view.appendChild(el('p','binhead','<span>Accuracy by layer (all modes, all sessions)</span>'));
+  view.appendChild(bar);
+}
+
+function judge(n){
+  const cur = S.deck[S.deckIdx]; if(!cur) return;
+  S.selected=null;
+  if(n===cur.layer){
+    P.layer[n].right++;
+    say('ok','Correct · Layer '+n,'<b>'+cur.text+' → Layer '+n+' ('+OSI[n]+').</b> '+cur.why);
+  }else{
+    P.layer[cur.layer].wrong++; S.errors++; $('#tErr').textContent=S.errors;
+    say('err','Wrong bin','<b>'+cur.text+' belongs at Layer '+cur.layer+' ('+OSI[cur.layer]+'), not Layer '+n+'.</b> '+cur.why);
+  }
+  S.deckIdx++;
+  if(S.deckIdx>=S.deck.length){ S.deckIdx=S.deck.length; }
+  save(); renderBins(); renderControls();
+}
+
+/* ============================ CONTROLS + RAIL ============================ */
+function renderControls(){
+  const c = $('#controls'); c.innerHTML='';
+  const add = (label,fn,on)=>{ const b=el('button','ctl'+(on?' on':''),label); b.onclick=fn; c.appendChild(b); };
+
+  if(S.stage===1){
+    add('Top-down 7→1', ()=>{S.dir='down';startRun();}, S.dir==='down');
+    add('Bottom-up 1→7', ()=>{S.dir='up';startRun();}, S.dir==='up');
+    add('Reset run', startRun);
+  }else if(S.stage===2){
+    SUB2.forEach((s,i)=> add(s.label+(P.s2[s.key]?' ✓':''), ()=>{S.sub=i;startRun();}, S.sub===i));
+    add('Reset run', startRun);
+  }else if(S.stage===3){
+    add('Reset run', startRun);
+    add('Best: '+fmt(P.s3.best), ()=>{});
+  }else{
+    add('Protocol bins', ()=>{S.mode='protocols';S.deckReset=true;renderBins();}, S.mode==='protocols');
+    add('Fault triage', ()=>{S.mode='symptoms';S.deckReset=true;renderBins();}, S.mode==='symptoms');
+    add('Shuffle deck', ()=>{S.deckReset=true;renderBins();});
+  }
+}
+
+function renderRail(){
+  const r = $('#rail'); r.innerHTML='';
+  STAGES.forEach(st=>{
+    const unlocked = P.unlocked>=st.id;
+    let done=false, status='';
+    if(st.id===1){ done=P.s1.down&&P.s1.up; status = done?'both directions clean':((P.s1.down?'7→1 clean · ':'')+(P.s1.up?'1→7 clean':'')||'not yet clean'); }
+    if(st.id===2){ const d=['pdu','addr','dev'].filter(k=>P.s2[k]).length; done=d===3; status = d+' of 3 columns clean'; }
+    if(st.id===3){ done=P.s3.done; status = done?('clean · best '+fmt(P.s3.best)):'not yet clean'; }
+    if(st.id===4){ status = unlocked?'open':'locked'; }
+    const b = el('button','stagebtn'+(S.stage===st.id?' active':''),
+      '<span class="idx">Stage '+st.id+'</span><span class="nm">'+st.name+'</span><span class="st">'+(unlocked?status:'locked')+'</span>');
+    b.dataset.state = !unlocked?'locked':(done?'done':'open');
+    if(unlocked) b.onclick = ()=>{ S.stage=st.id; startRun(); };
+    else b.onclick = ()=> say('err','Locked','Stage '+st.id+' opens when you finish Stage '+(st.id-1)+' clean. '+STAGES[st.id-2].blurb);
+    r.appendChild(b);
+  });
+}
+
+/* ============================ RUN ============================ */
+function startRun(){
+  S.cells={}; S.selected=null;
+  if(S.stage===4){ startClock(); renderControls(); renderRail(); renderBins();
+    say(null,'Stage 4','Free play. No gate here — the accuracy strip under the rack is your weak-layer report.');
+    return; }
+  if(S.stage===1) S.cols=['osi'];
+  else if(S.stage===2) S.cols=SUB2[S.sub].cols;
+  else S.cols=['tcp','osi','pdu','addr','dev','nic'];
+  S.tray = buildTray(S.cols);
+  startClock();
+  renderControls(); renderRail(); renderGrid();
+  const st=STAGES[S.stage-1];
+  say(null,'Stage '+S.stage,'<b>'+st.name+'.</b> '+st.blurb+' Wrong seat springs back out and tells you why.');
+}
+
+$('#wipe').onclick = async ()=>{
+  try{ await Store.del(STORE_KEY); }catch(e){}
+  P = {unlocked:1,s1:{down:false,up:false,best:null},s2:{pdu:false,addr:false,dev:false},s3:{done:false,best:null},layer:{},totalReveals:0};
+  LAYERS.forEach(n=>P.layer[n]={right:0,wrong:0});
+  S.stage=1;S.sub=0;S.dir='down';
+  startRun(); say(null,'Reset','Progress wiped. Back to Stage 1.');
+};
+
+(async ()=>{ await load(); S.stage = 1; startRun(); })();
+</script>
