@@ -170,6 +170,7 @@ const NIC  = {7:null,6:null,5:null,4:null,3:null,2:'NIC',1:'NIC'};
 
 const ANSWERS = {osi:OSI, tcp:TCP, pdu:PDU, addr:ADDR, dev:DEV, nic:NIC};
 const COLNAME = {osi:'OSI Model', tcp:'TCP/IP Model', pdu:'PDU', addr:'Address', dev:'Devices', nic:''};
+const COLLABEL = {osi:'OSI', tcp:'TCP/IP', pdu:'PDU', addr:'Address', dev:'Devices', nic:'NIC'};
 
 const MNEMONIC = {
   osi:{7:'All',6:'People',5:'Seem',4:'To',3:'Need',2:'Data',1:'Processing'},
@@ -332,24 +333,31 @@ function stopClock(){ clearInterval(S.timer); return Math.floor((Date.now()-S.t0
 function fmt(s){ return s==null?'—':Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
 
 /* ============================ TRAY BUILD ============================ */
+/* A label that is valid in more than one column (Transport, Application,
+   Network) becomes ONE tile carrying a slot per column. Which column it lands
+   in is decided by where you drop it, not by which twin you happened to grab. */
 function buildTray(cols){
-  const tiles=[]; let needsBlank=false;
+  const map = {}; let needsBlank=false;
   cols.forEach(col=>{
-    const seen={};
     LAYERS.forEach(n=>{
       const v = ANSWERS[col][n];
       if(v===null){ needsBlank=true; return; }
-      if(!seen[v]){ seen[v]=[]; }
-      seen[v].push(n);
-    });
-    Object.keys(seen).forEach(v=>{
-      tiles.push({id:col+':'+v, col, label:v, fills:seen[v], kind:'tile'});
+      if(!map[v]) map[v]=[];
+      let slot = map[v].find(s=>s.col===col);
+      if(!slot){ slot={col, layers:[]}; map[v].push(slot); }
+      slot.layers.push(n);
     });
   });
-  if(needsBlank) tiles.push({id:'blank', col:'*', label:'Blanking plate', fills:[], kind:'blank'});
-  // shuffle so order never becomes the hint
+  const tiles = Object.keys(map).map(v=>({id:'v:'+v, label:v, slots:map[v], kind:'tile'}));
+  if(needsBlank) tiles.push({id:'blank', label:'Blanking plate', slots:[], kind:'blank'});
   for(let i=tiles.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [tiles[i],tiles[j]]=[tiles[j],tiles[i]]; }
   return tiles;
+}
+
+/* How many columns still need this module. */
+function remainingSlots(t){
+  if(t.kind==='blank') return remainingBlanks();
+  return t.slots.filter(s => !S.cells[s.col+':'+s.layers[0]]).length;
 }
 
 function remainingBlanks(){
@@ -438,12 +446,13 @@ function renderGrid(){
 function renderBin(){
   const bin = $('#bin'); if(!bin) return;
   bin.innerHTML='';
-  const live = S.tray.filter(t=> t.kind==='blank' ? remainingBlanks()>0 : !S.cells[t.col+':'+t.fills[0]]);
+  const live = S.tray.filter(t=> remainingSlots(t)>0);
   bin.classList.toggle('empty', live.length===0);
   live.forEach(t=>{
+    const n = remainingSlots(t);
     const b = el('button','tile'+(t.kind==='blank'?' blank':'')+(S.selected===t.id?' sel':''));
     b.draggable = true;
-    b.innerHTML = t.label + (t.fills.length>1 ? '<span class="span">spans '+t.fills.join(' + ')+'</span>' : (t.kind==='blank'?'<span class="span">'+remainingBlanks()+' left</span>':''));
+    b.innerHTML = t.label + (n>1 ? '<span class="span">'+n+' still needed</span>' : '');
     b.ondragstart = e => { e.dataTransfer.setData('text/plain', t.id); S.selected=null; };
     b.onclick = () => { S.selected = (S.selected===t.id? null : t.id); renderBin(); };
     bin.appendChild(b);
@@ -488,8 +497,7 @@ function drop(col, layer, tileId){
   const answer = ANSWERS[col][layer];
   const cell = document.querySelector('[data-key="'+key+'"]');
 
-  const correct = tile.kind==='blank' ? answer===null
-                : (tile.col===col && answer===tile.label);
+  const correct = tile.kind==='blank' ? answer===null : answer===tile.label;
 
   if(correct){
     if(tile.kind==='blank'){
@@ -497,9 +505,11 @@ function drop(col, layer, tileId){
       P.layer[layer].right++;
       say('ok','Seated · '+layer+'U','<b>Blanking plate.</b> '+(BLANK_FACT[col]||'Nothing occupies that cell.'));
     }else{
-      tile.fills.forEach(f=>{ S.cells[col+':'+f]=tile.label; P.layer[f].right++; });
-      const span = tile.fills.length>1 ? ' It fills '+tile.fills.join(' and ')+'.' : '';
-      say('ok','Seated · '+tile.fills.map(f=>f+'U').join(' + '),'<b>'+tile.label+'.</b> '+(FACT[col+':'+tile.label]||'')+span);
+      const slot = tile.slots.find(s=>s.col===col);
+      slot.layers.forEach(f=>{ S.cells[col+':'+f]=tile.label; P.layer[f].right++; });
+      const span = slot.layers.length>1 ? ' In the '+COLLABEL[col]+' column it fills '+slot.layers.join(' and ')+'.' : '';
+      const more = remainingSlots(tile)>0 ? ' Still needed in the '+tile.slots.filter(s=>!S.cells[s.col+':'+s.layers[0]]).map(s=>COLLABEL[s.col]).join(' and ')+' column.' : '';
+      say('ok','Seated · '+slot.layers.map(f=>f+'U').join(' + '),'<b>'+tile.label+'.</b> '+(FACT[col+':'+tile.label]||'')+span+more);
     }
     S.selected=null;
     renderGrid();
@@ -510,13 +520,16 @@ function drop(col, layer, tileId){
     $('#tErr').textContent = S.errors;
     if(cell){ cell.classList.add('bad'); setTimeout(()=>cell.classList.remove('bad'),320); }
     let why;
+    const where = COLLABEL[col]+' column, '+layer+'U';
     if(tile.kind==='blank'){
-      why = '<b>Something does belong at '+layer+'U.</b> That cell is not blacked out on the chart — '+(FACT[col+':'+answer]||'');
+      why = '<b>Something does belong at '+where+'.</b> That cell is not blacked out on the chart — '+(FACT[col+':'+answer]||'');
     }else if(answer===null){
-      why = '<b>'+tile.label+' does not belong at '+layer+'U.</b> That cell is blacked out on the chart. '+(BLANK_FACT[col]||'');
+      why = '<b>'+tile.label+' does not belong at '+where+'.</b> That cell is blacked out on the chart. '+(BLANK_FACT[col]||'');
     }else{
-      const home = tile.fills.map(f=>f+'U').join('/');
-      why = '<b>'+tile.label+' belongs at '+home+', not '+layer+'U.</b> '+(FACT[tile.col+':'+tile.label]||'')+' The right answer for '+layer+'U is '+answer+'.';
+      const homes = tile.slots.map(s=>COLLABEL[s.col]+' '+s.layers.map(l=>l+'U').join('/')).join(', ');
+      why = '<b>'+tile.label+' does not go in the '+where+'.</b> It belongs at: '+homes+'. '
+          + (FACT[tile.slots[0].col+':'+tile.label]||'')
+          + ' The right answer for '+where+' is '+answer+'.';
     }
     say('err','Rejected · '+layer+'U', why);
     S.selected=null; renderBin();
